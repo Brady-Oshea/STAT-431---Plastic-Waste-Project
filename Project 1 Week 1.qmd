@@ -1,25 +1,45 @@
 ---
-title: "Untitled"
+title: "Project 1: Plastic Waste"
+author: "Brady O'Shea"
 format: html
 ---
 
-## Data
+## Plastic Waste Data
 
-This is Plastic Waste Data
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+This is the Plastic Waste Data. I will read the csv file in.
 
 ```{r}
-1 + 1
+library(tidyverse)
+plastics <- read.csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/refs/heads/main/data/2021/2021-01-26/plastics.csv")
+names(plastics)
 ```
 
-You can add options to executable code like this 
+# Context
+
+This data comes from Break Free from Plastic and Sarah Sauve. This data is useful to help understand the impacts of plastic and plastic waste in our world. This data comes from different volunteering events and organizations that collected plastic waste and other forms of waste. Then they collected the data about plastic waste such as different types of plastic counts. They also had identifying variables noted such as the country, year, source of plastic, and number of volunteers.
+
+# Cleaning
 
 ```{r}
-#| echo: false
-2 * 2
+glimpse(plastics)
+summary(plastics)
+any(is.na(plastics))
+sum(is.na(plastics))
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+The data does seem to be cleaned prior due to the country and year variables to be completely filled out. Though, there are over 15,000 missing values in the dataset. It appears mostly in the specific plastic types variables which indicates that not all types were recorded in every cleanup. That means that the missing values don't represent zeros, but rather those plastic types were not found or were unobserved.
+
+# Research Questions
+
+Research questions that could be addressed with this data:
+
+-   Which companies are responsible for the most plastic waste in the world?
+
+-   Which countries have the largest amount of plastic waste?
+
+-   Has plastic waste increased over time?
+
+Research questions that could be addressed with supplemental data:
+
+-   Is there a correlation between plastic waste and population per country?
+-   Is plastic waste associated with land area of a country?
