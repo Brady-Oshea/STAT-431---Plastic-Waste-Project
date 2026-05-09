@@ -1,0 +1,718 @@
+---
+title: "Plastic Pollution & Economic Development"
+subtitle: "A Global Analysis of Corporate Plastic Waste"
+author: "Alex Pyatigorsky, Brady O'Shea, and Leo Knudsen"
+date: today
+format:
+  html:
+    self-contained: true
+    theme: flatly
+    toc: true
+    toc-depth: 3
+    toc-title: "Contents"
+    number-sections: true
+    code-fold: true
+    code-summary: "Show Code"
+execute:
+  cache: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(tidyverse)
+library(lubridate)
+library(ggridges)
+library(ggtext)
+library(scales)
+library(broom)
+library(knitr)
+library(gt)
+library(patchwork)
+library(ggrepel)
+library(readr)
+
+# ── Load Data ──────────────────────────────────────────────────────────────────
+
+plastics <- readr::read_csv(
+  'https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2021/2021-01-26/plastics.csv'
+)
+
+gdp_df <- read.csv("~/Documents/STAT 431 Projects/Project 1 - Plastic Waste/gdp_data.csv")
+names(gdp_df)[names(gdp_df) == "Country"] <- "country_merge"
+gdp_df <- gdp_df |> select(-country)
+names(gdp_df)[names(gdp_df) == "country_merge"] <- "country"
+
+census_data <- read.csv("~/Downloads/IDB_04-15-2026.csv")
+census_data <- census_data[!is.na(census_data$Year), ]
+census_data$Year <- as.numeric(census_data$Year)
+names(census_data) <- str_to_lower(names(census_data))
+names(census_data)[names(census_data) == 'name'] <- 'country'
+census_data$population <- as.numeric(gsub(",", "", census_data$population))
+census_data$area.in.square.kilometers <- as.numeric(
+  gsub(",", "", census_data$area.in.square.kilometers)
+)
+
+# ── Harmonize Country Names ────────────────────────────────────────────────────
+
+census_data <- census_data |>
+  mutate(country = case_when(
+    country == 'Côte d\u2019Ivoire' ~ 'Cote D_ivoire',
+    country == 'Korea, South'       ~ 'Korea',
+    country == 'Taiwan'             ~ 'Taiwan_ Republic of China (ROC)',
+    country == 'United States'      ~ 'United States of America',
+    TRUE ~ country
+  ))
+
+plastics <- plastics |>
+  mutate(country = case_when(
+    country == 'ECUADOR' ~ 'Ecuador',
+    country == 'NIGERIA' ~ 'Nigeria',
+    country == 'United Kingdom of Great Britain & Northern Ireland' ~ 'United Kingdom',
+    TRUE ~ country
+  ))
+
+# ── Merge Datasets ─────────────────────────────────────────────────────────────
+
+plastics <- merge(plastics, census_data, all.x = TRUE, by = c('country', 'year'))
+plastics <- merge(plastics, gdp_df,      all.x = TRUE, by = c('country', 'year'))
+```
+
+---
+
+# Data Context
+
+This report draws on three complementary datasets to investigate the relationship
+between corporate plastic waste, national population, and economic development.
+
+## Break Free From Plastic Audit Data
+
+The data were collected and published by
+[Break Free From Plastic](https://www.breakfreefromplastic.org/), a global
+movement working to hold corporations accountable for the plastic pollution their
+products generate. Data were collected across dozens of countries worldwide. Each
+observation represents a single parent company's plastic waste recorded in a
+specific country in a given year, making the country–company–year the
+observational unit. The dataset covers two annual brand audit cycles: 2019 and
+2020. Volunteer teams organized community cleanup events and manually sorted
+collected plastic items by resin type (HDPE, LDPE, PET, PP, PS, PVC, and
+"other"), recording the responsible parent company for each piece. The number
+of volunteers and cleanup events per country are also included. The audit was
+designed to create transparent, brand-level accountability for plastic pollution
+and to document which corporations are the largest contributors to the global
+plastic crisis.
+
+*Data cleaning note:* The 2019 files contained duplicate polypropylene and
+polystyrene columns that were combined and removed. The 2020 grand-total column
+was stored as a character type and converted to numeric. Column names were
+standardized before merging the two years into one dataset. Three countries were
+omitted from per-capita visuals: Taiwan, Montenegro, and unlabeled events
+("EMPTY"). Taiwan and Montenegro were removed due to implausibly high plastic
+totals relative to their populations, and unlabeled events could not be attributed
+to any country.
+
+## U.S. Census Bureau International Database (IDB)
+
+Data were compiled and published by the
+[U.S. Census Bureau](https://www.census.gov/programs-surveys/international-programs/about/idb.html)
+as part of its International Programs division. The IDB covers countries and
+territories worldwide. Each row represents a single country in a single year,
+making the country–year the observational unit. The extract used here contains
+demographic estimates for 2019 and 2020, matching the plastic audit years. The
+Census Bureau derives IDB estimates from a combination of national censuses,
+vital registration systems, and demographic surveys, applying demographic
+modeling to fill gaps. Population and land area figures from the IDB allow
+plastic waste totals to be expressed on a per-capita basis and enable comparisons of waste generation relative to country size.
+
+## World Bank GDP Data
+
+GDP figures were sourced from the
+[World Bank Open Data](https://data.worldbank.org/) platform. Coverage is
+global, with one observation per country per year. GDP values for 2019 and 2020
+were extracted to align with the audit years. The World Bank collects national
+accounts data from member governments and international statistical agencies,
+reporting both nominal GDP per capita (current USD) and GDP measured at
+purchasing-power parity (PPP). GDP per capita provides a measure of national
+wealth, enabling analysis of whether economic development is associated with
+higher or lower rates of plastic waste generation.
+
+---
+
+# Research Questions
+
+## Question 1 — Wealth and Waste
+
+> **Do wealthier countries produce more plastic waste per capita?**
+
+Countries vary enormously in how much plastic waste they generate, but the
+direction of the relationship with national income is not obvious. High-income
+countries may produce more consumer packaging, yet they also tend to have more
+modernized waste-management technology. This question uses the Break Free From
+Plastic audit data joined with World Bank GDP figures to examine whether GDP per capita predicts per-capita plastic waste across countries.
+
+## Question 2 — Population vs. Economic Output
+
+> **Is total plastic waste driven more by a country's population size or its
+> economic output?**
+
+Population and GDP per capita are both plausible drivers of plastic waste. A
+larger population means more consumers, and higher incomes mean more purchasing
+power and more packaged goods. This question uses the IDB census data merged
+with the audit and GDP data to investigate these two drivers and assess their
+relative importance.
+
+---
+
+# Data Summaries & Visualizations
+
+## Research Question 1: Wealth and Plastic Waste
+
+### Summary Tables
+
+#### Cleanup Activity Statistics
+
+The table below summarizes volunteer participation and cleanup event counts,
+produced by iterating a custom summary function across both metrics called summarize_variable.
+
+```{r}
+#| label: tbl-cleanup-iter
+#| tbl-cap: "Summary statistics for cleanup activity metrics (2019–2020)."
+
+# Custom summary function 
+summarize_variable <- function(df, var_name, label) {
+  df |>
+    rename(.val = all_of(var_name)) |>
+    summarise(
+      Metric = label,
+      Min    = min(.val, na.rm = TRUE),
+      Mean   = round(mean(.val, na.rm = TRUE), 1),
+      Median = median(.val, na.rm = TRUE),
+      SD     = round(sd(.val, na.rm = TRUE), 1),
+      IQR    = IQR(.val, na.rm = TRUE),
+      Max    = max(.val, na.rm = TRUE)
+    )
+}
+
+# Iteration across both metrics
+map(
+  list(
+    list(var = "volunteers", label = "Volunteers per Cleanup"),
+    list(var = "num_events", label = "Number of Cleanup Events")
+  ),
+  function(item) summarize_variable(plastics, item$var, item$label)
+) |>
+  bind_rows() |>
+  gt() |>
+  tab_header(
+    title = "Table 1: Cleanup Activity Summary Statistics",
+    subtitle = "Volunteers per cleanup and number of events (2019–2020)"
+  ) |>
+  cols_label(
+    Metric = "Metric",
+    Min    = "Min",
+    Mean   = "Mean",
+    Median = "Median",
+    SD     = "Std. Dev.",
+    IQR    = "IQR",
+    Max    = "Max"
+  ) |>
+  fmt_number(
+    columns = c(Min, Mean, Median, SD, IQR, Max),
+    decimals = 1,
+    use_seps = TRUE
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_fill(color = "#2C3E50"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_text(color = "white"),
+    locations = cells_column_labels()
+  ) |>
+  tab_options(table.width = pct(80))
+```
+
+#### Proportion of Plastic by Resin Type
+
+```{r}
+#| label: tbl-plastic-props
+#| tbl-cap: "Mean proportion and total count of each plastic resin type across all audits."
+
+# Custom function 
+prop_summary <- function(df) {
+  df |>
+    pivot_longer(
+      cols      = c(hdpe, ldpe, o, pet, pp, ps, pvc),
+      names_to  = "plastic_type",
+      values_to = "count"
+    ) |>
+    mutate(prop = count / grand_total) |>
+    group_by(plastic_type) |>
+    summarize(
+      mean_prop   = round(mean(prop, na.rm = TRUE), 4),
+      total_count = sum(count, na.rm = TRUE)
+    )
+}
+
+prop_summary(plastics) |>
+  gt() |>
+  tab_header(
+    title = "Table 2: Plastic Waste by Resin Type",
+    subtitle = "Mean proportion and total count across all audits"
+  ) |>
+  cols_label(
+    plastic_type = "Plastic Type",
+    mean_prop    = "Mean Proportion",
+    total_count  = "Total Count"
+  ) |>
+  fmt_percent(
+    columns  = mean_prop,
+    decimals = 2
+  ) |>
+  fmt_integer(
+    columns  = total_count,
+    use_seps = TRUE
+  ) |>
+  text_transform(
+    locations = cells_body(columns = plastic_type),
+    fn = toupper
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_fill(color = "#18BC9C"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_text(color = "white"),
+    locations = cells_column_labels()
+  ) |>
+  tab_spanner(
+    label   = "Summary Statistics",
+    columns = c(mean_prop, total_count)
+  ) |>
+  tab_options(table.width = pct(70))
+```
+
+### Visualizations
+
+#### Top 20 Countries by Total Plastic Waste
+
+@fig-top20 shows the twenty countries with the highest total recorded plastic
+waste, colored by average GDP per capita. High-income countries like the United
+States and Switzerland appear alongside lower-income nations such as the Philippines
+and India, suggesting that wealth alone does not determine total waste output. Population scale and data-collection capacity could also be playing a role.
+
+```{r}
+#| label: fig-top20
+#| fig-cap: "Top 20 countries by total plastic waste (2019–2020), colored by average GDP per capita."
+#| fig-alt: "Horizontal bar chart showing the top 20 countries by total plastic waste. Bars are colored from dark purple (low GDP) to yellow (high GDP) using a plasma color scale. The Philippines, Nigeria, and Switzerland rank among the highest. A color legend on the right shows GDP per capita in dollars."
+#| fig-width: 10
+#| fig-height: 7
+
+plastics |>
+  group_by(country) |>
+  summarise(
+    total_plastic = sum(grand_total, na.rm = TRUE),
+    avg_gdp       = mean(gdp_per_capita_nominal, na.rm = TRUE)
+  ) |>
+  filter(!is.na(avg_gdp), total_plastic > 0) |>
+  slice_max(total_plastic, n = 20) |>
+  ggplot(aes(x = total_plastic, y = reorder(country, total_plastic), fill = avg_gdp)) +
+  geom_col() +
+  geom_text(aes(label = scales::comma(total_plastic)),
+            hjust = -0.1, size = 3, color = "grey30") +
+  scale_x_continuous(labels = scales::comma,
+                     expand = expansion(mult = c(0, 0.18))) +
+  scale_fill_viridis_c(option = "plasma", labels = scales::dollar_format()) +
+  labs(
+    title    = "Top 20 Countries by Total Plastic Waste",
+    subtitle = "Colored by average GDP per capita — wealth and waste do not move in lockstep",
+    x        = "Total Plastic Waste (piece count)",
+    y        = NULL,
+    fill     = "GDP per Capita"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.major.y = element_blank(),
+        legend.position    = "right")
+```
+
+#### Plastic Waste Distribution by GDP Group
+
+@fig-ridgeline compares the distribution of total plastic waste across countries
+grouped into Low (< \$5,000), Middle (\$5,000–\$20,000), and High (> \$20,000)
+GDP per capita tiers. All three groups show wide, right-skewed distributions.
+High-GDP countries have a heavier right tail, consistent with greater consumer
+plastic use, but Low-GDP countries are not far behind which likely reflects a  weaker
+waste-management infrastructure rather than less plastic generation.
+
+```{r}
+#| label: fig-ridgeline
+#| fig-cap: "Ridge density plot of total plastic waste (log scale) by GDP per capita group."
+#| fig-alt: "Ridgeline density plot with three rows: Low GDP in yellow, Middle GDP in orange, and High GDP in red. The x-axis shows total plastic waste on a log scale. High-GDP countries show a wider, heavier right tail, but all three groups overlap substantially, indicating that GDP group alone does not cleanly separate plastic waste levels."
+
+plastics |>
+  group_by(country) |>
+  summarize(
+    total_plastic      = sum(grand_total, na.rm = TRUE),
+    avg_gdp_per_capita = mean(gdp_per_capita_nominal, na.rm = TRUE)
+  ) |>
+  filter(!is.na(avg_gdp_per_capita)) |>
+  mutate(
+    gdp_group = ifelse(avg_gdp_per_capita > 20000, "High GDP",
+                ifelse(avg_gdp_per_capita <  5000, "Low GDP", "Middle GDP")),
+    gdp_group = factor(gdp_group, levels = c("Low GDP", "Middle GDP", "High GDP"))
+  ) |>
+  ggplot(aes(x = total_plastic, y = gdp_group, fill = gdp_group)) +
+  geom_density_ridges() +
+  scale_x_log10(labels = scales::label_comma()) +
+  scale_fill_manual(values = c("Low GDP"    = "#d5f5ef",
+                               "Middle GDP" = "#2C3E50",
+                               "High GDP"   = "#fff3cd")) +
+  labs(
+    title    = "Plastic Waste Distribution by GDP Group",
+    subtitle = "Countries grouped by <span style='color: #d5f5ef;'>**Low**</span>, <span style='color: #2C3E50;'>**Middle**</span>, and <span style='color: #fff3cd;'>**High**</span> GDP per Capita",
+    x        = "Total Plastic Waste (Log Scale)",
+    y        = NULL
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "none",
+        plot.subtitle   = element_markdown())
+```
+
+---
+
+## Research Question 2: Population vs. Economic Output
+
+### Summary Tables
+
+#### Per-Capita Plastic Waste — Top 10 Countries
+
+```{r}
+#| label: tbl-percap
+#| tbl-cap: "Top 10 countries by plastic waste per capita (population > 5 million), with corresponding GDP (PPP)."
+
+plastics_percap <- plastics |>
+  filter(
+    !str_detect(country, pattern = "Taiwan"),
+    !str_detect(country, pattern = "EMPTY"),
+    population > 5000000
+  ) |>
+  group_by(country) |>
+  summarize(
+    plastic_percap = sum(grand_total, na.rm = TRUE) / mean(population, na.rm = TRUE),
+    gdp_ppp        = mean(gdp_ppp, na.rm = TRUE)
+  )
+
+top10 <- (plastics_percap |> arrange(desc(plastic_percap)))[1:10, ]
+
+top10 |>
+  gt() |>
+  tab_header(
+    title    = "Table 3: Top 10 Countries by Plastic Waste Per Capita",
+    subtitle = "Countries with population > 5 million; Taiwan and Montenegro excluded"
+  ) |>
+  cols_label(
+    country        = "Country",
+    plastic_percap = "Plastic Per Capita",
+    gdp_ppp        = "GDP per Capita (PPP)"
+  ) |>
+  fmt_number(
+    columns  = plastic_percap,
+    decimals = 5
+  ) |>
+  fmt_currency(
+    columns  = gdp_ppp,
+    currency = "USD",
+    decimals = 0
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_fill(color = "#2C3E50"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_text(color = "white"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_fill(color = "#d5f5ef"),
+    locations = cells_body(rows = 1)
+  ) |>
+  tab_options(table.width = pct(70))
+```
+
+#### Mean Plastic Waste, Population, and GDP by GDP Group
+
+The table below is produced by iterating across the three GDP groups and
+computing group-level summaries for each.
+
+```{r}
+#| label: tbl-country-iter
+#| tbl-cap: "Mean plastic waste, population, and GDP per capita by GDP group (iterative computation)."
+
+# Iteration across GDP groups 
+gdp_groups <- c("Low GDP", "Middle GDP", "High GDP")
+
+country_level <- plastics |>
+  group_by(country) |>
+  summarize(
+    total_plastic = sum(grand_total, na.rm = TRUE),
+    avg_pop       = mean(population, na.rm = TRUE),
+    avg_gdp       = mean(gdp_per_capita_nominal, na.rm = TRUE)
+  ) |>
+  filter(!is.na(avg_gdp)) |>
+  mutate(
+    gdp_group = ifelse(avg_gdp > 20000, "High GDP",
+                ifelse(avg_gdp <  5000, "Low GDP", "Middle GDP")),
+    gdp_group = factor(gdp_group, levels = gdp_groups)
+  )
+
+map(gdp_groups, function(grp) {
+  country_level |>
+    filter(gdp_group == grp) |>
+    summarise(
+      `GDP Group`           = grp,
+      `N Countries`         = n(),
+      `Mean Total Plastic`  = round(mean(total_plastic, na.rm = TRUE), 0),
+      `Mean Population`     = round(mean(avg_pop, na.rm = TRUE), 0),
+      `Mean GDP per Capita` = round(mean(avg_gdp, na.rm = TRUE), 0)
+    )
+}) |>
+  bind_rows() |>
+  gt() |>
+  tab_header(
+    title    = "Table 4: Country-Level Averages by GDP Group",
+    subtitle = "Iterative summary across Low, Middle, and High GDP per capita groups"
+  ) |>
+  fmt_integer(
+    columns  = c(`N Countries`, `Mean Total Plastic`, `Mean Population`),
+    use_seps = TRUE
+  ) |>
+  fmt_currency(
+    columns  = `Mean GDP per Capita`,
+    currency = "USD",
+    decimals = 0
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_fill(color = "#2C3E50"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_text(color = "white"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_fill(color = "#fff3cd"),
+    locations = cells_body(rows = `GDP Group` == "High GDP")
+  ) |>
+  tab_style(
+    style = cell_fill(color = "#d5f5ef"),
+    locations = cells_body(rows = `GDP Group` == "Low GDP")
+  ) |>
+  tab_spanner(
+    label   = "Country Averages",
+    columns = c(`Mean Total Plastic`, `Mean Population`, `Mean GDP per Capita`)
+  ) |>
+  tab_options(table.width = pct(85))
+```
+
+### Visualizations
+
+#### Plastic Waste vs. Population (Log Scale)
+
+@fig-scatter shows a strong positive relationship between population and total
+plastic waste on a log–log scale. Larger countries consistently generate more
+recorded plastic. The dashed trend line confirms the upward slope, and labeled
+outliers reveal that some mid-sized countries (e.g., the Philippines) produce
+disproportionately high totals relative to their population.
+
+```{r}
+#| label: fig-scatter
+#| fig-cap: "Scatter plot of total plastic waste vs. average population (both log scale), with labeled notable countries."
+#| fig-alt: "Log-log scatter plot with population on the x-axis and total plastic waste on the y-axis. Each point represents one country shown as a blue dot. A dashed grey trend line runs diagonally upward from lower-left to upper-right. The Philippines, India, and the United States are labeled as high-plastic countries. The overall pattern shows a clear positive relationship between population and plastic waste."
+#| fig-width: 10
+#| fig-height: 6
+
+scatter_data <- plastics |>
+  group_by(country) |>
+  summarise(
+    total_plastic  = sum(grand_total, na.rm = TRUE),
+    avg_population = mean(population, na.rm = TRUE)
+  ) |>
+  filter(!is.na(avg_population), avg_population > 0, total_plastic > 0)
+
+notable <- scatter_data |>
+  arrange(desc(total_plastic)) |>
+  slice_head(n = 10) |>
+  bind_rows(scatter_data |> arrange(desc(avg_population)) |> slice_head(n = 5)) |>
+  distinct()
+
+ggplot(scatter_data, aes(x = avg_population, y = total_plastic)) +
+  geom_smooth(method = "lm", se = FALSE, color = "grey60", linetype = "dashed") +
+  geom_point(color = "dodgerblue", size = 2.5, alpha = 0.7) +
+  ggrepel::geom_text_repel(data = notable, aes(label = country),
+                           size = 3.2, color = "grey20",
+                           min.segment.length = 0, max.overlaps = 20) +
+  scale_x_log10(labels = scales::label_comma()) +
+  scale_y_log10(labels = scales::label_comma()) +
+  labs(
+    title    = "Plastic Waste Scales with Population Size",
+    subtitle = "Log-log scale; dashed line shows linear trend",
+    x        = "Population (log scale)",
+    y        = "Total Plastic Waste (log scale)"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+#### Per-Capita Plastic Waste vs. GDP PPP — Top 10 Countries
+
+@fig-lollipop juxtaposes the top 10 countries by per-capita plastic waste
+(left panel) with their respective GDP (PPP) per capita (right panel). The
+comparison reveals no clear monotonic relationship: Switzerland ranks high on
+both panels, but several other high-plastic countries have comparatively modest
+GDPs. This pattern is consistent with the conclusion that population and
+collection effort — not wealth alone — drive observed waste totals.
+
+```{r}
+#| label: fig-lollipop
+#| fig-cap: "Top 10 countries by plastic waste per capita (left) alongside their GDP per capita PPP (right)."
+#| fig-alt: "Side-by-side lollipop charts. The left panel shows plastic per capita with steelblue points connected to the axis by grey segments. The right panel shows GDP PPP with tomato-red points connected by dotdash grey segments. Countries are ordered by plastic per capita on both panels. The two panels do not rank identically, illustrating that GDP and per-capita plastic waste are not tightly correlated among the top countries."
+#| fig-width: 10
+#| fig-height: 5
+
+plastic_percap_lolipop <- top10 |>
+  ggplot(aes(x = plastic_percap, y = country)) +
+  geom_segment(aes(yend = country, x = 0, xend = plastic_percap), color = "gray50") +
+  geom_point(size = 4, color = "steelblue") +
+  labs(
+    title = "Plastic Waste Per Capita",
+    x     = "Plastic Per Capita",
+    y     = ""
+  ) +
+  theme_minimal()
+
+gdp_percap_lolipop <- top10 |>
+  ggplot(aes(x = gdp_ppp, y = country)) +
+  geom_segment(aes(x = 0, xend = gdp_ppp), color = "grey25", linetype = "dotdash") +
+  geom_point(size = 4, color = "tomato") +
+  labs(
+    title = "GDP per Capita (PPP)",
+    x     = "GDP PPP",
+    y     = ""
+  ) +
+  theme_minimal()
+
+plastic_percap_lolipop + gdp_percap_lolipop +
+  plot_annotation(title = "Per-Capita Plastic Waste vs. Economic Output — Top 10 Countries")
+```
+
+---
+
+# Data Model
+
+## Model: Total Plastic Waste by Resin Type and Country Area
+
+To formally test whether country size (land area) predicts plastic waste after
+accounting for resin type, we fit an ordinary least-squares regression of total
+plastic waste on plastic type and country area (km²). Plastic type is treated as
+a categorical predictor with HDPE as the reference level.
+
+```{r}
+#| label: tbl-model
+#| tbl-cap: "OLS regression coefficients — total plastic waste predicted by resin type and country area."
+
+plastic_types <- c("hdpe", "ldpe", "o", "pet", "pp", "ps", "pvc")
+
+tot_plastic_types <- function(type) {
+  plastics |>
+    group_by(country) |>
+    summarize(
+      plastic_type = as.character(type),
+      total        = sum(get(type), na.rm = TRUE),
+      area         = mean(area.in.square.kilometers, na.rm = TRUE)
+    )
+}
+
+model_data  <- map(plastic_types, tot_plastic_types) |> bind_rows()
+LinearModel <- lm(total ~ plastic_type + area, data = model_data)
+
+tidy(LinearModel) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3))) |>
+  gt() |>
+  tab_header(
+    title    = "Table 5: Linear Model Coefficients",
+    subtitle = "Total plastic waste predicted by resin type and country area"
+  ) |>
+  cols_label(
+    term      = "Term",
+    estimate  = "Estimate",
+    std.error = "Std. Error",
+    statistic = "t Statistic",
+    p.value   = "p-value"
+  ) |>
+  fmt_number(
+    columns  = c(estimate, std.error, statistic),
+    decimals = 3
+  ) |>
+  fmt_number(
+    columns  = p.value,
+    decimals = 3
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_fill(color = "#2C3E50"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_text(color = "white"),
+    locations = cells_column_labels()
+  ) |>
+  tab_style(
+    style = cell_fill(color = "#fff3cd"),
+    locations = cells_body(rows = p.value < 0.05)
+  ) |>
+  tab_footnote(
+    footnote  = "Reference category: HDPE. Model R² = 0.034; F(7, 867) = 3.29, p = 0.002. Highlighted rows are statistically significant (p < 0.05)."
+  ) |>
+  tab_options(table.width = pct(85))
+```
+
+## Model Interpretation
+
+The linear model regressed total plastic waste on plastic resin type and country
+land area. Although the model was statistically significant overall
+(F = 3.29, p = 0.002), it explained very little of the variance in plastic waste
+(R² = 0.034), indicating that these predictors capture only a small fraction of
+what drives waste totals.
+
+Using HDPE as the reference category, only the **"other"** plastic type
+differed significantly from HDPE — generating approximately 8,578 more units of
+waste on average (p < 0.05). The remaining resin types (LDPE, PET, PP, PS, PVC)
+did not differ significantly from HDPE (all p > 0.14).
+
+Critically, **country land area was not a significant predictor** of total
+plastic waste (p = 0.738). This finding directly addresses Research Question 2:
+the physical size of a country does not meaningfully explain how much plastic
+waste it generates. Combined with the scatter-plot evidence in @fig-scatter,
+this points toward **population and economic activity** — rather than land area —
+as the primary structural drivers of plastic waste output.
